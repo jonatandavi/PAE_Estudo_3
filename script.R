@@ -29,7 +29,6 @@ i <- 1
 for(d in 1:64) {
   for(t in 1:30){
     dim <- dimensions[d]# d
-    print(dim)
     selpars <- list(name = "selection_standard")
     stopcrit <- list(names = "stop_maxeval", maxevals = 5000 * dim, maxiter = 100 * dim)
     probpars <- list(name = "fn", xmin = rep(-5, dim), xmax = rep(10, dim))
@@ -48,11 +47,6 @@ for(d in 1:64) {
     
     # Extract observation:
     out$Fbest
-    print("\n")
-    print(out$Fbest)
-    print(t)
-    print(i)
-    print("rere")
     results1[t, d] = out$Fbest
   }
   i = i + 1

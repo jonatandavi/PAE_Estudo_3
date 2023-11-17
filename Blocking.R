@@ -13,8 +13,7 @@ for (package_name in packages_needed) {
 # Load data
 ####
 
-data <- read.table("algo.csv",
-                   header = TRUE)
+data <- read.table("data.csv", header = TRUE)
 
 
 # View a part of the data filtered by group

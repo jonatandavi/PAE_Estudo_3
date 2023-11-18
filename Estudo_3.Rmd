@@ -1,0 +1,345 @@
+---
+title: "Estudo 3"
+author: "Jonatan Almeida e Helbert Paulino"
+date: "2023-11-16"
+output:
+  pdf_document:
+    fig_caption: yes
+  html_document:
+    df_print: paged
+---
+
+```{r setup,results='hide',warning=FALSE,echo=FALSE,eval=FALSE}
+# A few initial definitions just to make sure all required packages are installed. Change as needed.
+# NOTE: It may echo some weird messages to the PDF on the first compile (package installation messages). Run twice and the problem will (hopefully) go away.
+if (!require(ggplot2, quietly = TRUE)){ 
+      install.packages("ggplot2")
+}
+```
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE, results='hide'}
+install.packages("devtools")                    # you only have to install it once
+library(devtools)
+install_github("rstudio/rmarkdown")             # you only have to install it once
+library(rmarkdown)
+render("Estudo_3.Rmd","pdf_document")    # this renders the pdf
+```
+
+## Resumo
+
+Este estudo de caso tem por objetivo realizar comparações estatísticas entre dois algoritmos de otimização, baseados em evolução diferencial (algoritmo de Storn and Prince, 1997). Basicamente, a análise estatística tem como objetivo responder às seguintes perguntas:
+
+> Há alguma diferença no desempenho médio do algoritmo quando equipado com estas diferentes configurações, para a classe de problemas de interesse? Caso haja, qual a melhor configuração em termos de desempenho médio, e qual a magnitude das diferenças encontradas? Há alguma configuração que deva ser recomendada em relação à outra?
+
+Para um algoritmo de otimização, quanto menor o valor retornado (tempo de convergência), melhor o algoritmo. Esses parâmetros serão suficientes para determinar se houve ou não alguma melhoria de um algoritmo em relação ao outro, independentemente das entradas do algoritmo. 
+
+## Análise exploratória dos dados
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE, results='hide'}
+install.packages("ExpDE")
+install.packages("smoof")
+```
+
+A análise será feita em funções de Rosenbrock (Rosenbrock, 1960), que é comumente utilizada para avaliar o desempenho de algoritmos de otimização. Essas funções são do tipo não convexa, unimodal e garantem convergência para um mínimo global (algumas vezes, esse mínimo global pode ser de difícil convergência (Picheny et al., 2012)). Uma função de Rosenbrock é definida como:
+
+$$f(x,y) = (a - x)^2 + b(x - y^2)^2$$
+
+Em que há um mínimo global em $f(a, a^2) = 0$
+
+A figura a seguir ilustra um exemplo desse tipo de função:
+
+```{r rosenbrockCalc loaddata, include=FALSE}
+x <- seq(0, 200, by = 1)
+y <- seq(0, 200, by = 1)
+
+f <- function(x, y) {
+  a <- 1
+  b <- 2
+  (a - x)^2 + b*(x - y^2)^2
+}
+
+# Create a grid value for XY
+xy_grid <- expand.grid(x = x, y = y)
+
+# Calculate Z
+z <- matrix(f(xy_grid$x, xy_grid$y), nrow = length(x), ncol = length(y), byrow = TRUE)
+```
+
+```{r rosenbrockPlot loaddata, echo=FALSE, fig.align='center', fig.width=3.5, fig.height=3.5}
+persp(x, y, z, theta = 0, phi = 10, col = "skyblue", shade = 0.5,
+      xlab = "X", ylab = "Y", zlab = "f(x,y)",
+      main = "Example of Rosenbrock function")
+```
+
+Na análise, serão avaliadas algumas classes de funções de Rosenbrock, de dimensões de 2 a 150. Para isso, um algoritmo de Pohlheim (Pohlheim, 2005) será utilizado para gerar uma função de dimentão dim.
+
+```{r pohlheim, include=FALSE}
+suppressPackageStartupMessages(library(smoof))
+
+fn <- function(X){
+  if(!is.matrix(X)) X <- matrix(X, nrow = 1) # <- if a single vector is passed as X
+  
+  Y <- apply(X, MARGIN = 1, FUN = smoof::makeRosenbrockFunction(dimensions = dim))
+  return(Y)
+}
+```
+
+Se considerarmos o modelo estatístico baseado no efeito do fator experimental, RCBD (randomized complete block design), então temos o seguinte modelo:
+
+$$ {y_i}_j = \mu + \tau_i + {\beta}_j+{\epsilon_i}_j \begin{cases} i = 1,...,a \\ j = 1,...,b \\ {\epsilon_i}_j \in N(0, \sigma^2) \end{cases}$$
+em que i = 1,...,a (número de níveis) e j = 1,...,n (número de observações). Em que $\mu$ é a média global, $\tau_i$ é o efeito do nível i, $\beta_j$ é o efeito para o bloco j e ${\epsilon_i}_j$ é o resíduo. 
+
+Dessa forma, a pergunta de interesse nos leva a definir as seguintes hipoteses:
+
+$$\begin{cases} H_0: \tau_{i} = 0, \forall i \in [1,a] \\H_1: \exists\tau_{i} \neq 0\end{cases}$$
+Assim, devemos realizar testes para sabermos se há efeitos de nível significativamente diferentes de zero, permitindo a rejeição da hipótese nula. Para isso, foi definido um grupo de instâncias homogêneas de valor 30 e foram aplicadas 64 replicações de testes.
+
+
+## Análise Estatística
+
+Para poder determinar qual dos dois algoritmos seria o melhor, utilizaremos as seguintes métricas:
+
+- Mínima diferença de importância prática (padronizada): (d = $\delta$ / $\sigma$) = 0.5
+- Significância desejada: $\alpha$ = 0.05
+- Potência mínima desejada para o caso: 1 - $\beta$ = 0.8
+
+Para as funções de Rosenbrock de dimensão dim, usaremos as variáveis x dentro do intervalo [-5, 10]. Com isso, teremos as seguintes dimensões:
+
+```{r dimensions, echo=FALSE}
+set.seed(2)
+dimensions <- sample(2:150, 64, replace=FALSE)
+print(dimensions)
+```
+
+Para o problema proposto, iremos analisar as seguintes configurações parar o problema de dimensões:
+
+Configuração 1:
+```{r echo=TRUE}
+recpars1 <- list(name = "recombination_exp", cr = 0.6)
+mutpars1 <- list(name = "mutation_best", f = 2)
+```
+
+Configuração 2:
+```{r, echo=TRUE}
+recpars2 <- list(name = "recombination_geo", alpha = 0.6)
+mutpars2 <- list(name = "mutation_rand", f = 1.2)
+```
+
+Dessa forma, executamos o algoritmo de otimização nas diferentes instâncias, obtendo o arquivo data.csv com o resultado da execução dos dados. A partir dele, faremos a análise estatística.
+
+```{r test1, eval=FALSE, include=FALSE}
+i <- 1
+for(d in 1:64) {
+  for(t in 1:30){
+    dim <- dimensions[d]# d
+    selpars <- list(name = "selection_standard")
+    stopcrit <- list(names = "stop_maxeval", maxevals = 5000 * dim, maxiter = 100 * dim)
+    probpars <- list(name = "fn", xmin = rep(-5, dim), xmax = rep(10, dim))
+    popsize = 5 * dim
+    
+    suppressPackageStartupMessages(library(ExpDE))
+    
+    # Run algorithm on problem:
+    out <- ExpDE(mutpars = mutpars1,
+                 recpars = recpars1,
+                 popsize = popsize,
+                 selpars = selpars,
+                 stopcrit = stopcrit,
+                 probpars = probpars,
+                 showpars = list(show.iters = "dots", showevery = 20))
+    
+    # Extract observation:
+    out$Fbest
+    results1[t, d] = out$Fbest
+  }
+  # Export to csv
+  data_to_append <- paste(d, t, i, out$Fbest, sep = ",")
+  cat(data_to_append, file = "data.csv", append = TRUE, "\n")
+}
+
+i <- 2
+results2 <- matrix(0, 30, 64)
+for(d in 1:64) {
+  for(t in 1:30){
+    dim <- dimensions[d]# d
+    
+    selpars <- list(name = "selection_standard")
+    stopcrit <- list(names = "stop_maxeval", maxevals = 5000 * dim, maxiter = 100 * dim)
+    probpars <- list(name = "fn", xmin = rep(-5, dim), xmax = rep(10, dim))
+    popsize = 5 * dim
+    
+    suppressPackageStartupMessages(library(ExpDE))
+    
+    # Run algorithm on problem:
+    out <- ExpDE(mutpars = mutpars2,
+                 recpars = recpars2,
+                 popsize = popsize,
+                 selpars = selpars,
+                 stopcrit = stopcrit,
+                 probpars = probpars,
+                 showpars = list(show.iters = "dots", showevery = 20))
+    
+    # Extract observation:
+    out$Fbest
+    
+    results2[t, i] = out$Fbest
+  }
+  # Export to csv
+  data_to_append <- paste(d, t, i, out$Fbest, sep = ",")
+  cat(data_to_append, file = "data.csv", append = TRUE, "\n")
+}
+```
+
+### Análise dos resultados
+A partir dos dados gerados, temos os tempos de execução e, com isso, um resumo sobre eles:
+
+```{r loadData, include=FALSE}
+# clean workspace
+rm(list=ls())
+
+# install required packages if needed
+packages_needed <- c("stringr","ggplot2", "multcomp")
+for (package_name in packages_needed) {      
+  if (!(package_name %in% rownames(installed.packages()))){
+    install.packages(package_name)
+  }
+}
+
+# Load data
+data <- read.table("data.csv", header = TRUE, sep = ",")
+
+# View a part of the data filtered by group
+data[which(data$group=='1'),][1:12,]
+data[which(data$group=='2'),][1:12,]
+```
+
+```{r summaryData, echo=FALSE}
+summary(data)
+```
+Para cada instância homogênea, calculamos a média dos tempos de execução. Os resultados são:
+```{r instanceMean, include=FALSE}
+# Aggregate data (algorithm means by instance group)
+aggdata <- with(data,aggregate(x = result, by  = list(group, instance),FUN = mean))
+aggdata
+# Rename columns
+names(aggdata) <- c("Group", "Instance", "Y")
+
+for (i in 1:2){
+  aggdata[, i] <- as.factor(aggdata[, i])
+}
+
+# Make factor level names more informative
+levels(aggdata$Group) <- c("Config1", "Config2")
+```
+
+```{r summary2, echo=FALSE}
+summary(aggdata)
+```
+A partir disso, realizamos alguns plots sobre os dados, para comparação:
+
+```{r plot1, echo=FALSE}
+library(ggplot2)
+p <- ggplot(aggdata, aes(x = Instance, y = Y, group = Group, colour = Group))
+p + geom_line(linetype=2) + geom_point(size=5)
+# dev.off()
+```
+
+Para a análise da variabilidade do das observações, temos:
+```{r variability, echo=FALSE}
+# First model
+# Response is result of the overall mean plus algorithm effect (treatment)
+# and instance (block) effect
+model <- aov(Y~Group+Instance,data = aggdata)
+summary(model)
+summary.lm(model)$r.squared
+```
+A partir dela, podemos ver que os efeitos ao longo das instâncias (efeito horizontal $\beta$), são menos significativos que os efeitos verticais ($\tau$), ou seja, há uma variação maior entre os algoritmos do que entre as instâncias. O teste R² obtido mostra um valor de 0.59 aproximadamente, o que faz com que o modelo adotado não explique bem toda a variação que ocorre nas variáveis independentes. 
+
+Os seguintes plots mostram a respeito do resíduos:
+
+```{r plotResiduals, echo=FALSE}
+# Graphical test of assumptions
+par(mfrow = c(2, 2))
+plot(model, pch = 20, las = 1)
+# dev.off()
+```
+
+Como forma complementar de análise, podemos analisar os resíduos em escala logaritimica:
+```{r plotResidualsLog, echo=FALSE}
+# Try log-transformed data
+model2 <- aov(log(Y)~Group+Instance,data = aggdata)
+summary(model2)
+summary.lm(model2)$r.squared
+
+# Graphical test of assumptions
+par(mfrow = c(2, 2))
+plot(model2, pch = 20, las = 1)
+# dev.off()
+```
+Como se pode perceber, não houve uma melhora significativa nos dados, o que pode ser um indicativo de que um modelo mais apromorado pode ser aplicado.
+
+A eficiência relativa da blocagem é um parâmetro que podemos utilizar para comparar observações CRD com a RCBD para sabermos, em porcentagem, quantas observações a mais teríamos que fazer no CRD para ter o mesmo poder estatístico que no RCBD. Para o modelo linear ajustado, obtemos o seguinte valor:
+
+```{r RCBDcomparison, eval=FALSE, include=FALSE}
+library(car)
+####
+## Blocking efficiency
+####
+
+mydf        <- as.data.frame(summary(model2)[[1]])
+MSblocks    <- mydf["Instance","Mean Sq"]
+MSe         <- mydf["Residuals","Mean Sq"]
+a           <- length(unique(aggdata$Group))
+b           <- length(unique(aggdata$Instance))
+((b - 1) * MSblocks + b * (a - 1) * MSe) / ((a * b - 1) * MSe)
+```
+O valor obtido mostra que teríamos que fazer cerca de 17,6% mais observações no estudo aleatorizado (CRD) do que na análise em blocos (RCBD) para ter o mesmo poder estatístico.
+
+Por fim, utilizando o teste de Dunnett para realizar uma comparação entre as configurações, em escala logaritmica, temos:
+
+```{r dunnett, include=FALSE}
+####
+## Post-hoc multiple comparisons
+####
+
+# using model 2 - log-transformed data
+library(multcomp)
+duntest     <- glht(model2, linfct = mcp(Group = "Dunnett"))
+summary(duntest)
+duntestCI   <- confint(duntest)
+
+par(mar = c(5, 8, 4, 2), las = 1)
+```
+
+```{r dunnettLog, echo=FALSE, fig.align='center'}
+plot(duntestCI,xlab = "Mean difference (log scale)")
+```
+
+
+```{r dunnett2, include=FALSE}
+# using model 1
+duntest1     <- glht(model, linfct = mcp(Group = "Dunnett"))
+summary(duntest1)
+duntestCI1   <- confint(duntest1)
+par(mar = c(5, 8, 4, 2), las = 1)
+```
+
+
+Para a plotagem em escalar linear, temos:
+
+
+```{r dunnettLin, echo=FALSE, fig.align='center'}
+plot(duntestCI1, xlab = "Mean difference")
+```
+
+### Atividades específicas
+
+Ambos os autores realizaram a avaliação dos dados estatísticos, pesquisaram sobre a ferramenta utilizada para os cálculos, realizaram correções nos trabalhos, implementações em R e sugestão de testes. Desenvolvemos também uma maneira para paralelizar os testes, os arquivos serão enviados juntamente com o .zip. A diferença entre a forma como usamos o script e o R Markdown é que, ao chamar várias instâncias, passamos para o sistema operacional o gerenciamento das tarefas, para que ele possa realizar o paralelismo e uso de mais cores, quando necessário. Assim, o tempo de execução dos dados foi reduzido drasticamente, em comparação com a execução sequencial.
+
+### Conclusões
+
+A partir dos testes performados, os resultados estatísticos permitiram responder às perguntas de interesses.
+
+Existe sim uma tendência de desempenho médio melhor das configurações idenditificadas como 1 em relação as identificadas como 2, isso pode ser observado no gráfico de comparação das Instancias por Y. Apesar de ser uma leve tendência, existem muito mais "outliers" da configuração 2 (denominada de "Config 2" na análise). Além disso, pode-se observar que há maior efeito quando realizamos comparações dentro de uma mesma instância do que ao longo delas, indicando um maior efeito vertical, do que horizontal, conforme mostrado no teste F.
+
+Segundo o teste de Dunnett que foi performado com intuito de dizer qual a melhor configuração do algoritmo, podemos confirmar a afirmação anterior. O algoritmo com configurações 1 (Config) é melhor que a configuração 2 (Config 1), uma vez que este apresenta tempo de execução médio menor que a outra configuração, permitindo realizar otimizações mais rapidamente.
